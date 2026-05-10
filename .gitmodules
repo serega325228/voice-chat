@@ -1,6 +1,6 @@
 [submodule "voice-chat-api"]
 	path = voice-chat-api
-	url = git@github.com:serega325228/voice-chat-api.git
+	url = https://github.com/serega325228/voice-chat-api.git
 [submodule "voice-chat-sfu"]
 	path = voice-chat-sfu
-	url = git@github.com:serega325228/voice-chat-sfu.git
+	url = https://github.com/serega325228/voice-chat-sfu.git
