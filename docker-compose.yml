@@ -1,0 +1,97 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: voice-chat-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-voicechat}
+      POSTGRES_USER: ${POSTGRES_USER:-voicechat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voicechat}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voicechat} -d ${POSTGRES_DB:-voicechat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  migrator:
+    build:
+      context: ./voice-chat-api
+      target: migrator
+    container_name: voice-chat-migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_URL: postgres://${POSTGRES_USER:-voicechat}:${POSTGRES_PASSWORD:-voicechat}@postgres:5432/${POSTGRES_DB:-voicechat}?sslmode=disable
+    command:
+      - "-migrations-path"
+      - "/app/migrations"
+      - "-database-url"
+      - "postgres://${POSTGRES_USER:-voicechat}:${POSTGRES_PASSWORD:-voicechat}@postgres:5432/${POSTGRES_DB:-voicechat}?sslmode=disable"
+    restart: "no"
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    container_name: voice-chat-coturn
+    command:
+      - "-n"
+      - "--log-file=stdout"
+      - "--realm=${TURN_REALM:-voice-chat.local}"
+      - "--user=${TURN_USER:-voicechat}:${TURN_PASSWORD:-voicechatpass}"
+      - "--listening-port=3478"
+      - "--listening-ip=0.0.0.0"
+      - "--relay-ip=0.0.0.0"
+      - "--external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--fingerprint"
+      - "--lt-cred-mech"
+      - "--no-cli"
+      - "--no-tls"
+      - "--no-dtls"
+    ports:
+      - "${TURN_PORT:-3478}:3478/tcp"
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    restart: unless-stopped
+
+  sfu:
+    build:
+      context: ./voice-chat-sfu
+    container_name: voice-chat-sfu
+    depends_on:
+      coturn:
+        condition: service_started
+    environment:
+      CONFIG_PATH: /app/config/docker.yaml
+      TURN_USER: ${TURN_USER:-voicechat}
+      TURN_PASSWORD: ${TURN_PASSWORD:-voicechatpass}
+    ports:
+      - "${SFU_GRPC_PORT:-8081}:8081"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./voice-chat-api
+      target: api
+    container_name: voice-chat-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      sfu:
+        condition: service_started
+    environment:
+      CONFIG_PATH: /app/config/docker.yaml
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me}
+      POSTGRES_URL: postgres://${POSTGRES_USER:-voicechat}:${POSTGRES_PASSWORD:-voicechat}@postgres:5432/${POSTGRES_DB:-voicechat}?sslmode=disable
+    ports:
+      - "${API_HTTP_PORT:-8082}:8082"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

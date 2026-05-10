@@ -1,0 +1,5 @@
+.codex
+.env
+.env.example
+/voice-chat-client
+*.md
